@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 import psycopg2
 import streamlit as st 
-import pandas as pd
+# import pandas as pd
 
 
 class Database:
@@ -58,16 +58,45 @@ class Database:
             conn.commit()
         return f"Book ID {book_id} updated successfully."
     
-    def fetch_df(self, query, params=None):
-            with self.dbconnect() as conn:
-                return pd.read_sql(query, conn, params=params)
-            
+    def fetch(self, query, params=None):
+        with self.dbconnect() as conn:
+            cur = conn.cursor()
+            cur.execute(query, params)
+            return cur.fetchall()
+                    
     def get_books(self):
-        return self.fetch_df("SELECT * FROM books ORDER BY book_id")
+        query = """
+              SELECT b.book_id, b.title, b.author, g.genre_type, 
+               b.row_number, b.shelf_number, b.is_available
+            FROM books b
+            JOIN genres g ON b.genre_id = g.genre_id
+            ORDER BY b.book_id
+            """
 
+
+        rows = self.fetch(query)
+        book_cols = ["book_id", "title", "author", "genre", "row_number", "shelf_number", "is_available"]
+
+        result = []
+        for row in rows:
+            row_dict = {}
+            for i in range(len(book_cols)):
+                row_dict[book_cols[i]] = row[i]
+            result.append(row_dict)
+        return result
+    
     def get_genres(self):
-        return self.fetch_df("SELECT * FROM genres ORDER BY name")
+        rows = self.fetch("SELECT * FROM genres ORDER BY genre_id")
+        genre_cols = ["genre_id", "genre_type"]
 
+        result = []
+
+        for row in rows:
+            row_dict = {}
+            for i in range(len(genre_cols)):
+                row_dict[genre_cols[i]] = row[i]
+            result.append(row_dict)
+        return result
 
 
 class Library:
@@ -115,7 +144,7 @@ class Library:
                 return "You have already borrowed this book."
 
             borrow_date = date.today()
-            due_date = borrow_date + timedelta(days=0)
+            due_date = borrow_date 
             try:
                 cur.execute(
                     "INSERT INTO b_borrowed (book_id, user_id, borrow_date, due_date, fine, fine_paid) VALUES (%s, %s, %s, %s, 0, FALSE)",
@@ -123,10 +152,31 @@ class Library:
                 )
                 cur.execute("UPDATE books SET is_available=FALSE WHERE book_id=%s", (book_id,))
                 conn.commit()
-                return "Book borrowed successfully!"
+                return "Book borrowed successfully! Need suggestion for Borrowing? Click for Options"
             except Exception as e:
                 conn.rollback()
                 return f"Error borrowing book: {str(e)}"
+
+
+    # def get_suggestion(self, genre = None, author = None):
+    #     with self.db.dbconnect() as conn:
+    #         cur = conn.cursor()
+
+    #         if genre:
+    #             query = "SELECT title, genre_type FROM suggest WHERE genre_type = %s"
+    #             cur.execute(query, (genre,))
+    #         elif author:
+    #             query = "SELECT title, genre_type FROM suggest WHERE author = %s"
+    #             cur.execute(query, (author,))
+    #         else:
+    #             "No Suggestion at the Moment"
+
+    #         rows = cur.fetchall()
+    #         if not rows:
+    #             return "No Suggestion Available"
+    #         return rows
+
+            
 
     def return_book(self, borrow_id):
         with self.db.dbconnect() as conn:
@@ -137,14 +187,32 @@ class Library:
             book_id = cur.fetchone()[0]
             cur.execute("UPDATE books SET is_available=TRUE WHERE book_id=%s", (book_id,))
             conn.commit()
-        return "Book returned!"
-    
-    def get_policy(self):
-        return self.db.fetch_df("SELECT rules FROM policies")
+        return "Book returned successfuly"
 
-    def get_borrow_history(self, user_id):
-        return self.db.fetch_df("SELECT * FROM b_borrowed WHERE user_id=%s ORDER BY borrow_date DESC", (user_id,))
+    def get_policy(self):
+        rows = self.db.fetch("SELECT rules from policies")
+        pol_cols = ["rules"]
+        
+        result =[]
+        for row in rows:
+            row_dict = {}
+            for i in range(len(pol_cols)):
+                row_dict[pol_cols[i]] = row[i]
+            result.append(row_dict)
+        return result
     
+    def get_borrow_history(self, user_id):
+        rows = self.db.fetch("SELECT * FROM b_borrowed WHERE user_id=%s ORDER BY borrow_date DESC", (user_id,))
+        history_cols = ["borrow_id", "book_id", "user_id", "borrow_date", "due_date", "return_date", "fine", "fine_paid"]
+
+        result = []
+        for row in rows:
+            row_dict = {}
+            for r in range(len(history_cols)):
+                row_dict[history_cols[r]] = row[r]
+            result.append(row_dict)
+        return result
+
 
     def fines(self, user_id, recalc = True):
         today = date.today()
@@ -154,51 +222,52 @@ class Library:
             cur = conn.cursor()
 
             if recalc:
-            
+
                 cur.execute("""
                     SELECT borrow_id, due_date, return_date, fine_paid 
                     FROM b_borrowed 
                     WHERE user_id=%s AND NOT fine_paid
                 """, (user_id,))
                 records = cur.fetchall()
-                
+            
                 for borrow_id, due_date, return_date, fine_paid in records:
                 
                     check_date = return_date if return_date else today
-                    overdue_days = (check_date - due_date).days
+                    overdue_days = (check_date - due_date).days                                              
                     
 
                     if overdue_days > 0:
                         fine = overdue_days * daily_fine
                         cur.execute("UPDATE b_borrowed SET fine = %s WHERE borrow_id = %s", (fine, borrow_id))
                     else:
-
                         cur.execute("UPDATE b_borrowed SET fine = 0 WHERE borrow_id = %s", (borrow_id,))
 
                 conn.commit()
 
-        return self.db.fetch_df("SELECT * FROM b_borrowed WHERE user_id = %s ORDER BY borrow_date DESC",(user_id,))
-
+            cur.execute("""
+            SELECT borrow_id, book_id, fine, fine_paid
+            FROM b_borrowed
+            WHERE user_id = %s 
+            ORDER BY borrow_id DESC
+            """, (user_id,))
+            rows = cur.fetchall()
+            result = []
+            for borrow_id, book_id, fine, fine_paid in rows:
+                result.append({
+                    "borrow_id" : borrow_id,
+                    "book_id" : book_id,
+                    "fine" : fine,
+                    "fine_paid" : fine_paid
+                })
+            return result
+     
 
     def clear_user_fines(self, user_id):
         with self.db.dbconnect() as conn:
             cur = conn.cursor()
             cur.execute("UPDATE b_borrowed SET fine = 0, fine_paid = True WHERE user_id = %s", (user_id,))
-        conn.commit()
+            conn.commit()
         return "All fines have been cleared successfully!"
-
-
-    def get_total_fines(self, user_id):
-        with self.db.dbconnect() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT COALESCE(SUM(fine), 0) FROM b_borrowed WHERE user_id = %s", (user_id,))
-            total = cur.fetchone()[0]
-        return total
-    
-    def search(self):
-        return self.db.fetch_df("SELECT * FROM searching")
-
-
 
 
 st.title(" My Library")
@@ -239,19 +308,36 @@ else:
 
         if menu == "Catalogue":
             st.subheader("Book Catalogue", divider= 'violet')
-            st.dataframe(library.get_books())
+            st.table(library.get_books())
 
         elif menu == "Borrow a Book":
             st.subheader("Borrow a Book", divider= 'violet')
             books = library.get_books()
-            available = books[books["is_available"] == True]
-            book_id = st.selectbox("Choose a Book", available["book_id"])
+            available = [book for book in books if book ["is_available"]]
+            book_id = st.selectbox("Choose a Book", [b["book_id"] for b in available])
             if st.button("Borrow"):
                 msg = library.borrow_book(book_id, user_id)
                 if msg == "Book borrowed successfully!":
                     st.success(msg)
                 else:
                     st.error(msg)
+            
+            # if st.button("Suggestion"):
+                
+            #     book = next(b for b in available if b["book_id"] == book_id)
+            #     genre = book.get("genre")
+            #     author = book.get("author")
+
+                
+            #     suggestions = library.get_suggestion(genre=genre, author=author)
+
+            #     if isinstance(suggestions, str):  
+            #         st.warning(suggestions)
+            #     else:
+            #         st.write("Here are some suggestions:")
+            #         for title, genre_type in suggestions:
+            #             st.write(f"- {title} ({genre_type})")
+
 
         elif menu == "Return a Book":
             st.subheader("Return a Book", divider= 'gray')
@@ -266,19 +352,18 @@ else:
         elif menu == "Policies":
             st.subheader("Rules and Regulations", divider= 'rainbow')
             policies = library.get_policy()
-            st.table(policies)
-        
+            st.table(policies) 
+
 
 
 
         elif menu == "My Fines":
             st.subheader("Fines", divider= 'violet')
             fines = library.fines(user_id, recalc= True)
-            if fines.empty:
+            if not fines:
                 st.success("No Fines")
             else:
-                fines["Status"] = fines["fine_paid"].apply(lambda x: "Paid" if x else "Unpaid")
-                st.dataframe(fines[["borrow_id", "book_id", "borrow_date", "due_date", "return_date", "fine", "Status"]])
+                st.table(fines)
 
             if st.button("Clear All Fines."):
                 result = library.clear_user_fines(user_id)
@@ -295,18 +380,18 @@ else:
                     WHERE title ILIKE %s OR author ILIKE %s OR genre_type ILIKE %s
 
                 """
-                results = library.db.fetch_df(query, (f"%{search}%", f"%{search}%", f"%{search}%"))
+                results = library.db.fetch(query, (f"%{search}%", f"%{search}%", f"%{search}%"))
 
-                if not results.empty:
-                    st.dataframe(results)
+                if results:
+                    st.table(results)
                 else:
                     st.warning("No macth found.")
 
         elif menu == "My Borrow History":
             st.subheader("My Borrowing History", divider= 'violet')
             history = library.get_borrow_history(user_id)
-            if not history.empty:
-                st.dataframe(history)
+            if history:
+                st.table(history)
             else:
                 st.info("Np Borrowing History")
 
@@ -329,8 +414,9 @@ else:
                 title = st.text_input("Title")
                 author = st.text_input("Author")
                 genres = library.get_genres()
-                genre_id = st.selectbox("Genre", genres["genre_id"],
-                                        format_func=lambda x: genres.loc[genres["genre_id"] == x, "name"].values[0])
+                genre_ids = [g["genre_id"] for g in genres]
+                genre_id = st.selectbox("Genre", genre_ids,
+                                        format_func=lambda x: next(g["genre_type"] for g in genres if g["genre_id"] == x))
                 row = st.number_input("Row", min_value=1, step=1)
                 shelf = st.number_input("Shelf", min_value=1, step=1)
                 if st.form_submit_button("Add Book"):
@@ -338,9 +424,10 @@ else:
 
             books = library.get_books()
             st.subheader("Remove a Book", divider='violet')
-            if not books.empty:
-                book_id = st.selectbox("Remove Book", books["book_id"],
-                                       format_func=lambda x: books.loc[books["book_id"] == x, "title"].values[0])
+            if books:
+                book_ids = [b["book_id"] for b in books]
+                book_id = st.selectbox("Remove Book", book_ids,
+                                       format_func=lambda x: next(b["title"] for b in books if b["book_id"] == x))
                 if st.button("Remove"):
                     st.success(library.remove_book(book_id))
         
@@ -348,25 +435,27 @@ else:
 
         elif menu == "Catalogue":
             st.subheader("Catalogue", divider= 'violet')
-            st.dataframe(library.get_books())
+            st.table(library.get_books())
 
 
 
         elif menu == "Manage Catalogue":
             st.subheader("Update Book Details", divider='violet')
             books = library.get_books()
-            if not books.empty:
-                book_id = st.selectbox("Choose a Book To Update", books["book_id"],
-                                       format_func=lambda x: books.loc[books["book_id"] == x, "title"].values[0])
+            if books:
+                book_ids = [b["book_id"] for b in books]
+                book_id = st.selectbox("Choose a Book To Update", book_ids,
+                                       format_func=lambda x: next(b["title"] for b in books if b["book_id"] == x))
                 new_title = st.text_input("New Title")
                 new_author = st.text_input("New Author")
                 genres = library.get_genres()
+                genre_ids = [g["genre_id"] for g in genres]
                 new_genre_id = st.selectbox(
-                    "New Genre", [None] + list(genres["genre_id"]),
-                    format_func=lambda x: "None" if x is None else genres.loc[genres["genre_id"] == x, "name"].values[0]
+                    "New Genre", [None] + genre_ids,
+                    format_func=lambda x: "None" if x is None else next(g["genre_type"] for g in genres if g["genre_id"] == x)
                 )
-                new_row = st.number_input("New Row Number", min_value=1, step=1)
-                new_shelf = st.number_input("New Shelf Number", min_value=1, step=1)
+                new_row = st.number_input("New Row Number", min_value=None, step=1)
+                new_shelf = st.number_input("New Shelf Number", min_value=None, step=1)
                 if st.button("Update Book"):
                     msg = library.update_book(book_id, new_title or None, new_author or None, new_genre_id, new_row, new_shelf)
                     st.success(msg)

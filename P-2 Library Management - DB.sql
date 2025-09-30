@@ -1,8 +1,4 @@
--- -- DROP TABLE IF EXISTS payments CASCADE;
--- -- DROP TABLE IF EXISTS b_borrowed CASCADE;
--- -- DROP TABLE IF EXISTS books CASCADE;
--- -- DROP TABLE IF EXISTS users CASCADE;
--- -- DROP TABLE IF EXISTS genres CASCADE;
+
 
 -- -- USERS table****
 -- CREATE TABLE users (
@@ -40,14 +36,6 @@
 --     return_date DATE,
 --     fine NUMERIC(10,2) DEFAULT 0,
 --     fine_paid BOOLEAN DEFAULT FALSE
--- );
-
--- -- PAYMENTS table***
--- CREATE TABLE payments (
---     payment_id SERIAL PRIMARY KEY,
---     borrow_id INT REFERENCES b_borrowed(borrow_id) ON DELETE CASCADE,
---     amount_paid NUMERIC(10,2) NOT NULL,
---     payment_date DATE DEFAULT CURRENT_DATE
 -- );
 
 -- -- INSERTING genres data***
@@ -109,19 +97,30 @@
 -- ('Handle books with care - damage will incur extra cjarges.')
 
 
-CREATE OR REPLACE VIEW searching AS
-SELECT b.book_id,
-b.title,
+-- CREATE OR REPLACE VIEW searching AS
+-- SELECT b.book_id,
+-- b.title,
+-- b.author,
+-- g.genre_type
+-- FROM books b
+-- JOIN genres g ON b.genre_id = g.genre_id
+
+-- SELECT * FROM users
+
+-- ALTER TABLE genres
+-- RENAME COLUMN name TO genre_type; 
+
+-- ALTER TABLE b_borrowed ADD COLUMN fine_paid BOOLEAN DEFAULT FALSE;
+-- SELECT * FROM b_borrowed
+
+
+
+CREATE OR REPLACE VIEW suggest AS
+SELECT b.title,
 b.author,
 g.genre_type
 FROM books b
 JOIN genres g ON b.genre_id = g.genre_id
 
-SELECT * FROM searching
+SELECT * FROM suggest
 
--- ALTER TABLE genres
--- RENAME COLUMN name TO genre_type; 
-
-
--- ALTER TABLE b_borrowed ADD COLUMN fine_paid BOOLEAN DEFAULT FALSE;
--- SELECT * FROM b_borrowed
